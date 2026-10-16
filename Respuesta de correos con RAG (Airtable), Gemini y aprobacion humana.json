@@ -1,0 +1,916 @@
+{
+  "name": "Respuesta de correos con RAG (Airtable), Gemini y aprobacion humana",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "in:inbox -from:me",
+          "readStatus": "unread"
+        },
+        "options": {}
+      },
+      "id": "0fbfb5e1-e78f-4cf7-8bb7-fe41029e3b26",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -112,
+        560
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Ub4YubRH2D5yKbUW",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputText": "=Asunto: {{ $json.subject }}\n\nCuerpo:\n{{ $json.text }}",
+        "categories": {
+          "categories": [
+            {
+              "category": "pide_presupuesto",
+              "description": "El correo pide un presupuesto, precio, cotizacion o consulta sobre componentes de PC (GPU, CPU, memoria RAM) o el armado de una PC"
+            },
+            {
+              "category": "otro",
+              "description": "Cualquier otro correo: spam, newsletters, notificaciones automaticas, publicidad o consultas que no piden presupuesto de componentes"
+            }
+          ]
+        },
+        "options": {
+          "fallback": "discard"
+        }
+      },
+      "id": "0e6186ad-4700-4e2d-b9f2-9472b382e92b",
+      "name": "Classify Email",
+      "type": "@n8n/n8n-nodes-langchain.textClassifier",
+      "typeVersion": 1.1,
+      "position": [
+        -368,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {}
+      },
+      "id": "e52aabf6-eb8f-4d84-8e79-f89f5a0af952",
+      "name": "Gemini Classifier Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -288,
+        336
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Asunto: {{ $(\"Gmail Trigger\").item.json.subject }}\nRemitente: {{ $(\"Gmail Trigger\").item.json.from.value[0].address }}\n\nCuerpo del correo:\n{{ $(\"Gmail Trigger\").item.json.text }}",
+        "options": {
+          "systemMessage": "Eres un asistente que redacta respuestas por correo electronico a clientes. Antes de responder SIEMPRE consulta las herramientas search_gpu, search_cpu y search_ram (memoria RAG con el catalogo de componentes de PC: GPU, CPU y memorias RAM, con sus precios de referencia). IMPORTANTE: llama a UNA sola herramienta por turno, nunca varias a la vez; espera su resultado antes de llamar a la siguiente. Usa la herramienta que corresponda a lo que pide el cliente, o varias si arma un presupuesto completo, e indica el total y basa tu respuesta unicamente en esa informacion. REGLA CLAVE: ofrece UNA SOLA opcion por tipo de componente (una GPU, un CPU, una memoria RAM), nunca alternativas ni dos marcas. Si el cliente nombra un modelo concreto, ofrece ese. Si no especifica marca o modelo, elige tu la opcion que mejor se ajuste a lo pedido (y a su presupuesto si lo indica) y presentala como la recomendacion, sin mencionar alternativas. No mezcles marcas distintas para el mismo componente. Si la informacion no esta en la base, dilo con honestidad e indica que un humano revisara la consulta; no inventes precios ni datos. Responde en el mismo idioma del cliente, con tono profesional y cordial. Devuelve solo el texto del correo, sin asunto ni comentarios adicionales."
+        }
+      },
+      "id": "dc5d449c-2d30-4b18-85f6-28dbcb1a989a",
+      "name": "Draft Reply with AI",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        224,
+        112
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {}
+      },
+      "id": "edf7841f-53bf-44be-a555-465e1db0e769",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        352
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appum5LML6n8vs1G4",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblrFX3JS4LASYpUp",
+          "mode": "id"
+        },
+        "filterByFormula": "={{ $fromAI('formula', 'Airtable formula to search GPUs (fields: Nombre_GPU, Marca, VRAM_GB, Precio_Referencia). Example: SEARCH(\"rtx\", LOWER({Nombre_GPU})) > 0. Leave empty to list all.', 'string') }}",
+        "returnAll": false,
+        "limit": 20,
+        "options": {}
+      },
+      "id": "5f4f11de-b41e-42c9-93aa-b25af4cd8d9b",
+      "name": "search_gpu",
+      "type": "n8n-nodes-base.airtableTool",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        352
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "snUkCWbhwHQ2OmXJ",
+          "name": "Airtable account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appum5LML6n8vs1G4",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblgFvfLBMtSWZfha",
+          "mode": "id"
+        },
+        "filterByFormula": "={{ $fromAI('formula', 'Airtable formula to search CPUs (fields: Nombre_CPU, Marca, Precio_Referencia). Example: SEARCH(\"ryzen\", LOWER({Nombre_CPU})) > 0. Leave empty to list all.', 'string') }}",
+        "returnAll": false,
+        "limit": 20,
+        "options": {}
+      },
+      "id": "187925da-bc1f-4292-a478-959c87cb4464",
+      "name": "search_cpu",
+      "type": "n8n-nodes-base.airtableTool",
+      "typeVersion": 2.2,
+      "position": [
+        272,
+        464
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "snUkCWbhwHQ2OmXJ",
+          "name": "Airtable account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appum5LML6n8vs1G4",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblgIaAJD7IN3wBaL",
+          "mode": "id"
+        },
+        "filterByFormula": "={{ $fromAI('formula', 'Airtable formula to search RAM kits (fields: Marca, Capacidad_GB, Cantidad_Modulos, Velocidad_MHz, Precio_Referencia). Example: {Capacidad_GB} >= 32. Leave empty to list all.', 'string') }}",
+        "returnAll": false,
+        "limit": 20,
+        "options": {}
+      },
+      "id": "36303b61-2b66-44ef-9ad8-222786dbc8c3",
+      "name": "search_ram",
+      "type": "n8n-nodes-base.airtableTool",
+      "typeVersion": 2.2,
+      "position": [
+        368,
+        336
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "snUkCWbhwHQ2OmXJ",
+          "name": "Airtable account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "marcelodiaz1375@gmail.com",
+        "subject": "=Aviso: fallo o expiracion en flujo de respuestas - {{ $workflow.name }}",
+        "emailType": "text",
+        "message": "=Hubo un problema procesando el correo \"{{ $(\"Gmail Trigger\").item.json.subject }}\" de {{ $(\"Gmail Trigger\").item.json.from.value[0].address }}.\n\nEjecucion: {{ $execution.id }}\nMotivo: un paso del flujo fallo o el presupuesto no fue aprobado dentro de las 24 horas. Revisa la ejecucion en n8n para ver el detalle.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "7eb46c1a-935f-41d0-a4cf-819503eef37a",
+      "name": "Notify Error to Admin",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        -32
+      ],
+      "webhookId": "32183bcb-e5fc-4fe8-b7f1-5644a0c45288",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Ub4YubRH2D5yKbUW",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appum5LML6n8vs1G4",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblVdI9GzRQiieKIb",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Descripción": "={{ $json.output }}",
+            "Estado": "Pendiente de Revisión",
+            "Remitente": "={{ $('Gmail Trigger').item.json.from.value[0].address }}"
+          }
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "d3f744c4-4ff7-4a85-912c-572bb10e2fca",
+      "name": "Create Budget Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        624,
+        608
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "snUkCWbhwHQ2OmXJ",
+          "name": "Airtable account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "marcelodiaz1375@gmail.com",
+        "subject": "=Aviso: fallo o expiracion en flujo de respuestas - {{ $workflow.name }}",
+        "emailType": "text",
+        "message": "=Hubo un problema procesando el correo \"{{ $(\"Gmail Trigger\").item.json.subject }}\" de {{ $(\"Gmail Trigger\").item.json.from.value[0].address }}.\n\nEjecucion: {{ $execution.id }}\nMotivo: un paso del flujo fallo o el presupuesto no fue aprobado dentro de las 24 horas. Revisa la ejecucion en n8n para ver el detalle.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e9995961-085a-450c-99fa-0fbe2b9ad1f1",
+      "name": "Notify Error After Drafting",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1952,
+        512
+      ],
+      "webhookId": "c3a4ae5e-920d-4993-ae24-82d6ef29a04b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Ub4YubRH2D5yKbUW",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}"
+      },
+      "id": "0d2e1fd4-a1da-484b-b57b-53ce6e169c58",
+      "name": "Mark Email as Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        832,
+        480
+      ],
+      "webhookId": "ccb038b4-6d59-4cf2-8ca4-3f9d3cd135bb",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Ub4YubRH2D5yKbUW",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "unit": "minutes"
+      },
+      "id": "ab721294-a66b-47ea-88f1-8a8d9ceae6aa",
+      "name": "Wait for Human Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1056,
+        480
+      ],
+      "webhookId": "26955c40-79e2-49e7-b5f5-996196fcc91c"
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "base": {
+          "__rl": true,
+          "value": "appum5LML6n8vs1G4",
+          "mode": "list",
+          "cachedResultName": "Presupuestos_PCgamer",
+          "cachedResultUrl": "https://airtable.com/appum5LML6n8vs1G4"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblVdI9GzRQiieKIb",
+          "mode": "list",
+          "cachedResultName": "Presupuestos_Pendientes",
+          "cachedResultUrl": "https://airtable.com/appum5LML6n8vs1G4/tblVdI9GzRQiieKIb"
+        },
+        "id": "={{ $('Create Budget Record').item.json.id }}",
+        "options": {}
+      },
+      "id": "248e2042-cf99-4347-87d2-484821c1647f",
+      "name": "Check Approval Status",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        1280,
+        416
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "snUkCWbhwHQ2OmXJ",
+          "name": "Airtable account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "rejected",
+              "leftValue": "={{ $json.fields.Rechazado === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "12cdc154-b9b5-4189-bc22-340777b34399",
+      "name": "Is Rejected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appum5LML6n8vs1G4",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblVdI9GzRQiieKIb",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "id": "={{ $json.id }}",
+            "Estado": "Rechazado"
+          }
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "82ccfae8-a688-415d-850b-f22fce34f85d",
+      "name": "Mark Record Rejected",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        2192,
+        272
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "snUkCWbhwHQ2OmXJ",
+          "name": "Airtable account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "approved",
+              "leftValue": "={{ $json.fields.Aprobado === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "95b30949-e376-472b-b5ef-734becf9ad9b",
+      "name": "Is Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1504,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "airtableOAuth2Api",
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appum5LML6n8vs1G4",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblVdI9GzRQiieKIb",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "id": "={{ $json.id }}",
+            "Estado": "Aprobado",
+            "Marca_GPU": "={{ /rtx|gtx|nvidia|geforce/i.test($json.fields[\"Descripción\"] || \"\") ? \"Nvidia\" : (/[ *]rx ?[0-9]|radeon/i.test($json.fields[\"Descripción\"] || \"\") ? \"AMD\" : null) }}",
+            "Marca_CPU": "={{ /ryzen|threadripper|athlon/i.test($json.fields[\"Descripción\"] || \"\") ? \"AMD\" : (/intel|core i[0-9]|core ultra/i.test($json.fields[\"Descripción\"] || \"\") ? \"Intel\" : null) }}"
+          }
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "57c0b672-8649-4ad9-9fb9-367f861d52d9",
+      "name": "Update Record Approved",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        1968,
+        704
+      ],
+      "credentials": {
+        "airtableOAuth2Api": {
+          "id": "snUkCWbhwHQ2OmXJ",
+          "name": "Airtable account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "emailType": "text",
+        "message": "={{ $(\"Check Approval Status\").item.json.fields[\"Descripción\"] }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "1b952e66-e54e-40f9-9d0b-485498973a66",
+      "name": "Send Approved Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1728,
+        240
+      ],
+      "webhookId": "34dc1a8a-d587-4b37-a5ff-7b9e427169ac",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Ub4YubRH2D5yKbUW",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "timeout",
+              "leftValue": "={{ $runIndex >= 144 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ee8f035d-b07d-4c26-b2b3-ea08e22382a1",
+      "name": "Approval Timed Out?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1728,
+        432
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Classify Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Email": {
+      "main": [
+        [
+          {
+            "node": "Draft Reply with AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Classifier Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Reply with AI": {
+      "main": [
+        [
+          {
+            "node": "Create Budget Record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Error to Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Draft Reply with AI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_gpu": {
+      "ai_tool": [
+        [
+          {
+            "node": "Draft Reply with AI",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_cpu": {
+      "ai_tool": [
+        [
+          {
+            "node": "Draft Reply with AI",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_ram": {
+      "ai_tool": [
+        [
+          {
+            "node": "Draft Reply with AI",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Budget Record": {
+      "main": [
+        [
+          {
+            "node": "Mark Email as Read",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Error After Drafting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Email as Read": {
+      "main": [
+        [
+          {
+            "node": "Wait for Human Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Human Approval": {
+      "main": [
+        [
+          {
+            "node": "Check Approval Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Approval Status": {
+      "main": [
+        [
+          {
+            "node": "Is Rejected?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Error After Drafting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Rejected?": {
+      "main": [
+        [
+          {
+            "node": "Mark Record Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Record Rejected": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Notify Error After Drafting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Approved?": {
+      "main": [
+        [
+          {
+            "node": "Update Record Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Approval Timed Out?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Record Approved": {
+      "main": [
+        [
+          {
+            "node": "Send Approved Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Error After Drafting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approved Reply": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Notify Error After Drafting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Timed Out?": {
+      "main": [
+        [
+          {
+            "node": "Notify Error After Drafting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for Human Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f937b3b2-7849-4fa9-a0b6-9b78da59f4a0",
+  "meta": {
+    "instanceId": "f44b792810a4ee6b951b8533205355cfc14a108a5cbb260dd779f67d19a5110e"
+  },
+  "nodeGroups": [
+    {
+      "id": "25eec104-0ebf-4607-90f6-de069b3b98b1",
+      "name": "Detect budget requests",
+      "nodeIds": [
+        "0e6186ad-4700-4e2d-b9f2-9472b382e92b",
+        "e52aabf6-eb8f-4d84-8e79-f89f5a0af952"
+      ],
+      "description": "Reads each new unread email and ignores anything that is not a request for a PC components quote"
+    },
+    {
+      "id": "5156c7e9-2d1a-46c2-a5da-96acbac98cfc",
+      "name": "Draft AI reply",
+      "nodeIds": [
+        "dc5d449c-2d30-4b18-85f6-28dbcb1a989a",
+        "edf7841f-53bf-44be-a555-465e1db0e769",
+        "5f4f11de-b41e-42c9-93aa-b25af4cd8d9b",
+        "187925da-bc1f-4292-a478-959c87cb4464",
+        "36303b61-2b66-44ef-9ad8-222786dbc8c3"
+      ],
+      "description": "Reads each new unread email and drafts an answer using the Airtable knowledge base"
+    },
+    {
+      "id": "ba31dc89-e08a-4e69-98e0-cce23d542b67",
+      "name": "Human approval and reply",
+      "nodeIds": [
+        "d3f744c4-4ff7-4a85-912c-572bb10e2fca",
+        "0d2e1fd4-a1da-484b-b57b-53ce6e169c58",
+        "ab721294-a66b-47ea-88f1-8a8d9ceae6aa",
+        "248e2042-cf99-4347-87d2-484821c1647f",
+        "12cdc154-b9b5-4189-bc22-340777b34399",
+        "82ccfae8-a688-415d-850b-f22fce34f85d",
+        "95b30949-e376-472b-b5ef-734becf9ad9b",
+        "57c0b672-8649-4ad9-9fb9-367f861d52d9",
+        "ee8f035d-b07d-4c26-b2b3-ea08e22382a1",
+        "1b952e66-e54e-40f9-9d0b-485498973a66",
+        "e9995961-085a-450c-99fa-0fbe2b9ad1f1"
+      ],
+      "description": "Saves the draft in the budgets table, marks it Pendiente, then waits for Aprobado or Rechazado: updates Estado and brands, replies only if approv"
+    }
+  ],
+  "id": "9PO7rcdbjpcHEFg2",
+  "tags": []
+}
